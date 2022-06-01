@@ -1,0 +1,10 @@
+//type(video_labeler):frame_count=300
+//type(video_labeler):frame_offset=300
+//type(video_labeler):file_name="D:/data/video/Sepia/20110827_200436/20110827_200436.avi"
+
+type(vr_view_interactor):calibration_file_path="D:/develop/VIVE_office.cal"
+//type(vr_emulator):current_kit_index=0
+type(vr_view_interactor):focus_x=0
+type(vr_view_interactor):focus_y=1.1
+type(vr_view_interactor):focus_z=0.6
+type(vr_view_interactor):y_extend_at_focus=0.6

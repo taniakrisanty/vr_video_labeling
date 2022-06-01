@@ -1,0 +1,16 @@
+#version 150
+
+in vec3 texcoords;
+in float opacity_fs;
+
+uniform sampler3D vol_tex;
+
+//***** begin interface of fragment.glfs ***********************************
+uniform float gamma = 2.2;
+void finish_fragment(vec4 color);
+//***** end interface of fragment.glfs ***********************************
+
+void main()
+{
+	finish_fragment(vec4(texture(vol_tex, texcoords).rgb, opacity_fs));
+}

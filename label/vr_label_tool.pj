@@ -1,0 +1,35 @@
+@=
+projectType="application_plugin";
+projectName="vr_label_tool";
+projectGUID="F873016D-F944-4C44-9CC5-5D4990FA69D7";
+//referenceDeps = 0;
+addProjectDirs=[CGV_DIR."/plugins", CGV_DIR."/libs", CGV_DIR."/test"];
+addProjectDeps=[
+	"cgv_utils", "cgv_type", "cgv_data", "cgv_base", "cgv_math", "cgv_media", "cgv_gui", "cgv_render", 
+	"cgv_gl", "cg_vr", "plot",
+	"cgv_viewer", 
+	"cg_fltk", "cmf_tt_gl_font", "crg_grid", "cg_ext", "cmi_io", "crg_vr_view", "vr_lab", 
+	"vr_emulator", "openvr_driver"
+];
+addIncDirs=[INPUT_DIR, CGV_DIR."/libs", CGV_DIR."/test"];
+
+addSharedDefines=["VR_LABEL_TOOL_EXPORTS"];
+
+addCommandLineArguments=[
+	after("type(shader_config):shader_path='".INPUT_DIR.";".CGV_DIR."/plugins/crg_vr_view;".CGV_DIR."/plugins/vr_lab;".CGV_DIR."/libs/cgv_gl/glsl;".CGV_DIR."/libs/plot/glsl;".CGV_DIR."/libs/cgv_proc'","cg_fltk"),
+	'config:"'.INPUT_DIR.'/config.def"'
+];
+
+
+
+
+
+
+
+
+
+
+
+
+
+
