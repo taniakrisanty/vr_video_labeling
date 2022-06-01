@@ -30,3 +30,6 @@
 *.exe
 *.out
 *.app
+
+# Local version of config files
+*.cfg
