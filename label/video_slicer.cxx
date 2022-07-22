@@ -138,4 +138,191 @@ void video_slicer::draw(cgv::render::context& ctx)
 		if (is_culling)
 			glEnable(GL_CULL_FACE);
 	}
+
+	draw_oblique_slices(ctx);
+}
+void video_slicer::create_slice(const vec3& origin, const vec3& direction, const rgba& color)
+{
+	std::cout << "slice created" << std::endl;
+
+	slice_origins.emplace_back(origin);
+	slice_directions.emplace_back(direction);
+
+	//post_recreate_gui();
+}
+
+void video_slicer::delete_slice(size_t index, size_t count)
+{
+	std::cout << "slice deleted" << std::endl;
+
+	slice_origins.erase(slice_origins.begin() + index, slice_origins.begin() + index + count);
+	slice_directions.erase(slice_directions.begin() + index, slice_directions.begin() + index + count);
+
+	//post_recreate_gui();
+}
+
+size_t video_slicer::get_num_slices() const
+{
+	return slice_origins.size();
+}
+
+void video_slicer::draw_oblique_slices(cgv::render::context& ctx)
+{
+	for (int i = 0; i < slice_origins.size(); ++i)
+	{
+		draw_oblique_slice(i, ctx);
+	}
+}
+
+void video_slicer::draw_oblique_slice(size_t index, cgv::render::context& ctx)
+{
+	std::vector<vec3> polygon;
+	//construct_slice(index, polygon);
+
+	if (polygon.size() < 3)
+		return;
+
+	std::vector<float> normals, vertices;
+	std::vector<int> vertex_indices, tex_coords;
+
+	vec3 a(polygon[0] - polygon[1]);
+	vec3 b(polygon[0] - polygon[2]);
+	vec3 n(cross(a, b));
+
+	for (int i = 0; i < 3; ++i)
+	{
+		normals.push_back(n[i]);
+	}
+
+	int i = 0;
+	for (auto point : polygon)
+	{
+		vertices.push_back(point.x());
+		vertices.push_back(point.y());
+		vertices.push_back(point.z());
+
+		vertex_indices.push_back(0);
+		tex_coords.push_back(i++);
+	}
+
+	GLboolean is_culling;
+	glGetBooleanv(GL_CULL_FACE, &is_culling);
+	glDisable(GL_CULL_FACE);
+	//aam.set_attribute_array(ctx, slice_prog.get_attribute_location(ctx, "position"), P);
+	//aam.set_attribute_array(ctx, slice_prog.get_attribute_location(ctx, "opacity"), O);
+	//aam.enable(ctx);
+	vol_tex.enable(ctx, 0);
+	slice_prog.enable(ctx);
+	slice_prog.set_uniform(ctx, "box_min_point", position - 0.5f * V.get_extent());
+	slice_prog.set_uniform(ctx, "box_extent", V.get_extent());
+	slice_prog.set_uniform(ctx, "vol_tex", 0);
+	//glDrawArrays(GL_TRIANGLES, 0, GLsizei(P.size()));
+	//ctx.draw_faces(vertices.data(), normals.data(), 0, tex_coords.data(), vertex_indices.data(), tex_coords.data(), 1, polygon.size());
+	slice_prog.disable(ctx);
+	vol_tex.disable(ctx);
+	//aam.disable(ctx);
+	if (is_culling)
+		glEnable(GL_CULL_FACE);
+}
+
+void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) const
+{
+	/************************************************************************************
+	 Classify the volume box corners (vertices) as inside or outside vertices.
+	 The signed_distance_from_slice()-method calculates the distance between each box corner and the slice.
+	 Assume that outside vertices have a positive distance. */
+
+	box3 B(vec3(0.0f), vec3(float(V.get_dimensions()(0)), float(V.get_dimensions()(1)), float(V.get_dimensions()(2))));
+
+	float values[8];
+	bool corner_classifications[8]; // true = outside, false = inside
+
+	for (int c = 0; c < 8; ++c)
+	{
+		float value = signed_distance_from_slice(index, B.get_corner(c));
+
+		values[c] = value;
+		corner_classifications[c] = value >= 0;
+	}
+
+	/************************************************************************************
+	 Construct the edge points on each edge connecting differently classified
+				   corners. Remember that the edge point coordinates are in range [0,1] for
+				   all dimensions since they are 3D-texture coordinates. These points are
+				   stored in the polygon-vector.
+	 Arrange the points along face adjacencies for easier tessellation of the
+				   polygon. Store the ordered edge points in the polygon-vector. Create your own
+				   helper structures for edge-face adjacenies etc.*/
+
+	static int a_corner_comparisons[12] = { 0, 3, 7, 4, 0, 4, 5, 1, 0, 1, 2, 3 };
+	static int b_corner_comparisons[12] = { 1, 2, 6, 5, 3, 7, 6, 2, 4, 5, 6, 7 };
+	static int comparison_to_edges[12] = { 0, 2, 6, 4, 3, 7, 5, 1, 8, 9, 10, 11 };
+
+	std::vector<vec3> p;
+
+	for (int i = 0; i < 12; ++i)
+	{
+		int a_corner_index = a_corner_comparisons[i];
+		int b_corner_index = b_corner_comparisons[i];
+
+		if (corner_classifications[a_corner_index] != corner_classifications[b_corner_index])
+		{
+			vec3 coord = B.get_corner(a_corner_index);
+			float a_value = abs(values[a_corner_index]);
+			float b_value = abs(values[b_corner_index]);
+
+			float new_value = a_value / (a_value + b_value);
+
+			coord(i / 4) = new_value;
+
+			p.push_back(voxel_to_world_coordinate_transform(coord));
+		}
+	}
+
+	if (p.empty())
+		return;
+
+	vec3 p0 = p[0];
+	p.erase(p.begin());
+
+	polygon.push_back(p0);
+
+	while (p.size() > 1)
+	{
+		bool found = false;
+
+		for (unsigned int i = 0; i < 3; ++i)
+		{
+			if (p0(i) < std::numeric_limits<float>::epsilon() || p0(i) > 1 - std::numeric_limits<float>::epsilon())
+			{
+				for (unsigned int j = 0; j < p.size(); ++j)
+				{
+					vec3 f = p[j];
+
+					if (fabs(f(i) - p0(i)) < std::numeric_limits<float>::epsilon())
+					{
+						p.erase(p.begin() + j);
+
+						polygon.push_back(f);
+
+						p0 = f;
+						found = true;
+						break;
+					}
+				}
+			}
+
+			if (found) break;
+		}
+	}
+
+	polygon.push_back(p[0]);
+}
+float video_slicer::signed_distance_from_slice(size_t index, const vec3& p) const
+{
+	/************************************************************************************
+	 The signed distance between the given point p and the slice which
+	 is defined through slice_direction and slice_distance. */
+
+	return dot(slice_directions[index], p - slice_origins[index]);
 }

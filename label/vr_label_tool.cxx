@@ -6,8 +6,14 @@
 #include <cg_nui/transforming.h>
 #include <plugins/vr_lab/vr_tool.h>
 
+#include <cgv/math/ftransform.h>
+#include <cgv_gl/surfel_renderer.h>
+
 #include "video_labeler.h"
 #include "pressable.h"
+
+#define DEBUG
+#define EPSILON 0.01f
 
 class vr_label_tool : 
 	public cgv::base::group,
@@ -27,7 +33,14 @@ class vr_label_tool :
 	uint32_t li_play = -1;
 	///
 	bool playback = false;
+
+	cgv::render::surfel_render_style surf_rs;
 public:
+	enum class tool_enum {
+		none,
+		slice
+	};
+
 	std::string get_type_name() const
 	{
 		return "vr_label_tool";
@@ -43,7 +56,25 @@ public:
 	}
 	video_labeler_ptr labeler;
 	std::vector<pressable_ptr> buttons;
-	
+
+protected:
+	// active tool 
+	tool_enum tool = tool_enum::slice;
+
+	// previous inverse model transform
+	// if this changes (e.g. the table is rotated), the quaternion for rotating control direction must be recalculated
+	mat4 prev_inverse_model_transform;
+	quat control_direction_rotation;
+
+	// previous position and direction of the right controller
+	vec3 prev_control_origin;
+	vec3 prev_control_direction;
+
+	// slice
+	// index of temporary slice
+	int temp_slice_idx = -1;
+	size_t selected_slice_idx = SIZE_MAX;
+
 public:
 	vr_label_tool() : cgv::base::group("vr_label_tool")
 	{
@@ -56,6 +87,16 @@ public:
 		labeler = video_labeler_ptr(new video_labeler("labeler", rgb(0.5, 0.5f, 0.3f)));
 		append_child(labeler);
 		register_object(labeler);
+
+		surf_rs.illumination_mode = cgv::render::IlluminationMode::IM_OFF;
+		surf_rs.culling_mode = cgv::render::CullingMode::CM_OFF;
+		surf_rs.measure_point_size_in_pixel = false;
+		surf_rs.blend_points = true;
+		surf_rs.point_size = 1.8f;
+		surf_rs.percentual_halo_width = 5.0f;
+		surf_rs.surface_color = rgba(0, 0.8f, 1.0f);
+		surf_rs.material.set_transparency(0.75f);
+		surf_rs.halo_color = rgba(0, 0.8f, 1.0f, 0.8f);
 	}
 	void on_pressed(unsigned i)
 	{
@@ -78,6 +119,11 @@ public:
 
 		update_member(member_ptr);
 		post_redraw();
+	}
+	bool init(cgv::render::context& ctx)
+	{
+		cgv::render::ref_surfel_renderer(ctx, 1);
+		return true;
 	}
 	void init_frame(cgv::render::context& ctx)
 	{		
@@ -126,6 +172,10 @@ public:
 				scene_ptr->hide_label(li_help[ci]);
 		}
 	}
+	void clear(cgv::render::context& ctx)
+	{
+		cgv::render::ref_surfel_renderer(ctx, -1);
+	}
 	void draw(cgv::render::context& ctx)
 	{
 		mat4 model_transform(3, 4, &get_scene_ptr()->get_coordsystem(coordinate_system::table)(0, 0));
@@ -133,10 +183,36 @@ public:
 
 		ctx.push_modelview_matrix();
 		ctx.mul_modelview_matrix(model_transform);
+
+		if (tool == tool_enum::slice)
+			compute_slice();
 	}
 	void finish_draw(cgv::render::context& ctx)
 	{
 		ctx.pop_modelview_matrix();
+	}
+	void finish_frame(cgv::render::context& ctx)
+	{
+		// draw infinite clipping plane (as a disc) only when outside of wireframe box
+		if (get_scene_ptr()->is_coordsystem_valid(coordinate_system::right_controller))
+		{
+			ctx.push_modelview_matrix();
+			ctx.mul_modelview_matrix(cgv::math::pose4(get_scene_ptr()->get_coordsystem(coordinate_system::right_controller)));
+			glEnable(GL_BLEND);
+			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			draw_circle(ctx, vec3(0.0f), vec3(0, 0, 1));
+			glDisable(GL_BLEND);
+			ctx.pop_modelview_matrix();
+		}
+	}
+	void draw_circle(cgv::render::context& ctx, const vec3& position, const vec3& normal)
+	{
+		auto& sr = cgv::render::ref_surfel_renderer(ctx);
+		sr.set_reference_point_size(0.5f);
+		sr.set_render_style(surf_rs);
+		sr.set_position(ctx, position);
+		sr.set_normal(ctx, normal);
+		sr.render(ctx, 0, 1);
 	}
 	void stream_help(std::ostream& os)
 	{
@@ -145,6 +221,49 @@ public:
 
 	bool focus_change(cgv::nui::focus_change_action action, cgv::nui::refocus_action rfa, const cgv::nui::focus_demand& demand, const cgv::gui::event& e, const cgv::nui::dispatch_info& dis_info)
 	{
+		return false;
+	}
+	bool handle(const cgv::gui::event& e)
+	{
+		// check if vr event flag is not set and don't process events in this case
+		if ((e.get_flags() & cgv::gui::EF_VR) != 0) {
+			switch (e.get_kind()) {
+			case cgv::gui::EID_KEY:
+			{
+				//cgv::gui::vr_key_event& vrke = static_cast<cgv::gui::vr_key_event&>(e);
+				//if (vrke.get_controller_index() == 1) { // only right controller
+				//	if (vrke.get_action() != cgv::gui::KA_RELEASE) {
+				//		switch (vrke.get_key()) {
+				//		case vr::VR_DPAD_LEFT:
+				//			switch (tool) {
+				//			case tool_enum::slice:
+				//				set_slice(); // put current slice permanently
+				//				break;
+				//			default:
+				//				break;
+				//			}
+				//			return true;
+				//		case vr::VR_DPAD_RIGHT:
+				//			switch (tool) {
+				//			case tool_enum::slice:
+				//				release_slice(); // release slice disc
+				//				tool = tool_enum::none;
+				//				break;
+				//			default:
+				//				delete_slice();
+				//				tool = tool_enum::none;
+				//				break;
+				//			}
+				//			return true;
+				//		}
+				//	}
+				//}
+				//break;
+			}
+			return false;
+			}
+		}
+
 		return false;
 	}
 	bool handle(const cgv::gui::event& e, const cgv::nui::dispatch_info& dis_info, cgv::nui::focus_request& request)
@@ -156,12 +275,12 @@ public:
 		add_decorator("vr_label_tool", "heading");
 		add_member_control(this, "play", playback, "toggle");
 		add_member_control(this, "stats_bgclr", stats_bgclr);
-//		if (begin_tree_node("labeler", labeler, true)) {
-//			align("\a");
-//			inline_object_gui(labeler);
-//			align("\b");
-//			end_tree_node(labeler);
-//		}
+		if (begin_tree_node("labeler", labeler, true)) {
+			align("\a");
+			inline_object_gui(labeler);
+			align("\b");
+			end_tree_node(labeler);
+		}
 		if (begin_tree_node("buttons", buttons)) {
 			align("\a");
 			for (auto op : buttons)
@@ -173,6 +292,83 @@ public:
 				}
 			align("\b");
 			end_tree_node(buttons);
+		}
+		if (begin_tree_node("surfel rendering", surf_rs, false)) {
+			align("\a");
+			add_gui("surfel_style", surf_rs);
+			align("\b");
+			end_tree_node(surf_rs);
+		}
+	}
+
+	void compute_slice()
+	{
+		bool control_changed = true, create_slice = false;
+
+		if (get_view_ptr() && get_view_ptr()->get_current_vr_state())
+		{
+			vec3 direction = -reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[6]);
+			// control_origin have to be transformed to local space of the cells
+			vec3 origin = reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[9]);
+
+			if (prev_inverse_model_transform != get_inverse_model_transform()) {
+				prev_inverse_model_transform = get_inverse_model_transform();
+
+				mat3 rotation;
+
+				for (size_t i = 0; i < 3; ++i) {
+					vec3 col(get_inverse_model_transform().col(i));
+					col.normalize();
+
+					rotation.set_col(i, col);
+				}
+
+				control_direction_rotation = quat(rotation);
+			}
+
+			vec4 origin4(get_inverse_model_transform() * origin.lift());
+			origin = origin4 / origin4.w();
+
+			control_direction_rotation.rotate(direction);
+
+			//if (prev_control_direction != direction || prev_control_origin != origin)
+			if (fabs(prev_control_direction.x() - direction.x()) >= EPSILON ||
+				fabs(prev_control_direction.y() - direction.y()) >= EPSILON ||
+				fabs(prev_control_direction.z() - direction.z()) >= EPSILON ||
+				fabs(prev_control_origin.x() - origin.x()) >= EPSILON ||
+				fabs(prev_control_origin.y() - origin.y()) >= EPSILON ||
+				fabs(prev_control_origin.z() - origin.z()) >= EPSILON)
+			{
+#ifdef DEBUG
+				std::cout << "\nprev_direction\t" << prev_control_direction << "\ndirection\t" << direction;
+				std::cout << "\nprev_origin\t" << prev_control_origin << "\norigin\t\t" << origin << std::endl;
+#endif
+
+				prev_control_direction = direction;
+				prev_control_origin = origin;
+
+				create_slice = origin.x() >= 0.f && origin.x() <= 1.f &&
+					origin.y() >= 0.f && origin.y() <= 1.f &&
+					origin.z() >= 0.f && origin.z() <= 1.f;
+			}
+			else
+			{
+				control_changed = false;
+			}
+		}
+
+		if (control_changed && temp_slice_idx > -1)
+		{
+			labeler->delete_slice(temp_slice_idx);
+
+			temp_slice_idx = -1;
+		}
+
+		if (create_slice)
+		{
+			temp_slice_idx = labeler->get_num_slices();
+
+			labeler->create_slice(prev_control_origin, prev_control_direction);
 		}
 	}
 };

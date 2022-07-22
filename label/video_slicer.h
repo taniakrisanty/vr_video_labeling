@@ -23,6 +23,10 @@ protected:
 	cgv::render::shader_program slice_prog;
 	cgv::render::attribute_array_manager aam;
 
+	// geometry of slices
+	std::vector<vec3> slice_origins;
+	std::vector<vec3> slice_directions;
+
 	int  slice_indices[3] = { -1, -1, -1 };
 	bool show_slices[3] = { false, false, true };
 
@@ -45,4 +49,15 @@ public:
 	void clear(cgv::render::context& ctx);
 	void init_frame(cgv::render::context& ctx);
 	void draw(cgv::render::context& ctx);
+
+	void create_slice(const vec3& origin, const vec3& direction, const rgba& color = rgba(0.f, 1.f, 1.f, 0.05f));
+	void delete_slice(size_t index, size_t count = 1);
+
+	size_t get_num_slices() const;
+private:
+	void draw_oblique_slices(cgv::render::context& ctx);
+
+	void draw_oblique_slice(size_t index, cgv::render::context& ctx);
+	void construct_slice(size_t index, std::vector<vec3>& polygon) const;
+	float signed_distance_from_slice(size_t index, const vec3& p) const;
 };
