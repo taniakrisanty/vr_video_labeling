@@ -4,6 +4,8 @@
 #include <cgv/media/volume/volume.h>
 #include <cgv_gl/box_renderer.h>
 
+#define DEBUG
+
 class video_slicer : public cgv::render::drawable
 {
 	bool vol_tex_outofdate = false;
@@ -55,9 +57,6 @@ public:
 
 	size_t get_num_slices() const;
 private:
-	void draw_oblique_slices(cgv::render::context& ctx);
-
-	void draw_oblique_slice(size_t index, cgv::render::context& ctx);
 	void construct_slice(size_t index, std::vector<vec3>& polygon) const;
 	float signed_distance_from_slice(size_t index, const vec3& p) const;
 };

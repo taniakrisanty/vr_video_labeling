@@ -12,7 +12,6 @@
 #include "video_labeler.h"
 #include "pressable.h"
 
-#define DEBUG
 #define EPSILON 0.01f
 
 class vr_label_tool : 
@@ -200,7 +199,7 @@ public:
 			ctx.mul_modelview_matrix(cgv::math::pose4(get_scene_ptr()->get_coordsystem(coordinate_system::right_controller)));
 			glEnable(GL_BLEND);
 			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			draw_circle(ctx, vec3(0.0f), vec3(0, 0, 1));
+			draw_circle(ctx, vec3(0.0f, 0.0f, -0.05f), vec3(0, 0, 1));
 			glDisable(GL_BLEND);
 			ctx.pop_modelview_matrix();
 		}
@@ -303,13 +302,18 @@ public:
 
 	void compute_slice()
 	{
-		bool control_changed = true, create_slice = false;
+		bool control_changed = true, create_slice = true;// create_slice = false;
 
 		if (get_view_ptr() && get_view_ptr()->get_current_vr_state())
 		{
 			vec3 direction = -reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[6]);
-			// control_origin have to be transformed to local space of the cells
 			vec3 origin = reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[9]);
+			origin += 0.05f * direction;
+
+#ifdef DEBUG
+			std::cout << "\noriginal direction\t" << direction;
+			std::cout << "\noriginal origin\t\t" << origin << std::endl;
+#endif
 
 			if (prev_inverse_model_transform != get_inverse_model_transform()) {
 				prev_inverse_model_transform = get_inverse_model_transform();
@@ -331,6 +335,11 @@ public:
 
 			control_direction_rotation.rotate(direction);
 
+#ifdef DEBUG
+			std::cout << "\ndirection\t" << direction;
+			std::cout << "\norigin\t\t" << origin << std::endl;
+#endif
+
 			//if (prev_control_direction != direction || prev_control_origin != origin)
 			if (fabs(prev_control_direction.x() - direction.x()) >= EPSILON ||
 				fabs(prev_control_direction.y() - direction.y()) >= EPSILON ||
@@ -340,20 +349,20 @@ public:
 				fabs(prev_control_origin.z() - origin.z()) >= EPSILON)
 			{
 #ifdef DEBUG
-				std::cout << "\nprev_direction\t" << prev_control_direction << "\ndirection\t" << direction;
-				std::cout << "\nprev_origin\t" << prev_control_origin << "\norigin\t\t" << origin << std::endl;
+				//std::cout << "\nprev_direction\t" << prev_control_direction << "\ndirection\t" << direction;
+				//std::cout << "\nprev_origin\t" << prev_control_origin << "\norigin\t\t" << origin << std::endl;
 #endif
 
 				prev_control_direction = direction;
 				prev_control_origin = origin;
 
-				create_slice = origin.x() >= 0.f && origin.x() <= 1.f &&
-					origin.y() >= 0.f && origin.y() <= 1.f &&
-					origin.z() >= 0.f && origin.z() <= 1.f;
+				//create_slice = origin.x() >= 0.f && origin.x() <= 1.f &&
+				//	origin.y() >= 0.f && origin.y() <= 1.f &&
+				//	origin.z() >= 0.f && origin.z() <= 1.f;
 			}
 			else
 			{
-				control_changed = false;
+				//control_changed = false;
 			}
 		}
 

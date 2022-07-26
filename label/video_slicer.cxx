@@ -118,6 +118,24 @@ void video_slicer::draw(cgv::render::context& ctx)
 		for (int s = 0; s < 6; ++s)
 			O.push_back(1.0f);
 	}
+	// construct oblique slice geometry
+	for (int i = 0; i < slice_origins.size(); ++i)
+	{
+		std::vector<vec3> polygon;
+		construct_slice(i, polygon);
+
+		if (!polygon.empty())
+		{
+			for (int i = polygon.size() - 1; i > 1; --i)
+			{
+				P.push_back(polygon[0]);
+				P.push_back(polygon[i]);
+				P.push_back(polygon[i - 1]);
+				for (int s = 0; s < 3; ++s)
+					O.push_back(1.0f);
+			}
+		}
+	}
 	// render slice geometry
 	if (!P.empty()) {
 		GLboolean is_culling;
@@ -138,8 +156,6 @@ void video_slicer::draw(cgv::render::context& ctx)
 		if (is_culling)
 			glEnable(GL_CULL_FACE);
 	}
-
-	draw_oblique_slices(ctx);
 }
 void video_slicer::create_slice(const vec3& origin, const vec3& direction, const rgba& color)
 {
@@ -166,56 +182,6 @@ size_t video_slicer::get_num_slices() const
 	return slice_origins.size();
 }
 
-void video_slicer::draw_oblique_slices(cgv::render::context& ctx)
-{
-	for (int i = 0; i < slice_origins.size(); ++i)
-	{
-		draw_oblique_slice(i, ctx);
-	}
-}
-
-void video_slicer::draw_oblique_slice(size_t index, cgv::render::context& ctx)
-{
-	std::vector<vec3> P;
-	std::vector<float> O;
-
-	std::vector<vec3> polygon;
-	construct_slice(index, polygon);
-
-	if (!polygon.empty())
-	{
-		for (int i = polygon.size() - 1; i > 1; --i)
-		{
-			P.push_back(polygon[0]);
-			P.push_back(polygon[i]);
-			P.push_back(polygon[i - 1]);
-			for (int j = 0; j < 3; ++j)
-				O.push_back(1.0f);
-		}
-	}
-
-	if (P.empty())
-		return;
-
-	GLboolean is_culling;
-	glGetBooleanv(GL_CULL_FACE, &is_culling);
-	glDisable(GL_CULL_FACE);
-	aam.set_attribute_array(ctx, slice_prog.get_attribute_location(ctx, "position"), P);
-	aam.set_attribute_array(ctx, slice_prog.get_attribute_location(ctx, "opacity"), O);
-	aam.enable(ctx);
-	vol_tex.enable(ctx, 0);
-	slice_prog.enable(ctx);
-	slice_prog.set_uniform(ctx, "box_min_point", position - 0.5f * V.get_extent());
-	slice_prog.set_uniform(ctx, "box_extent", V.get_extent());
-	slice_prog.set_uniform(ctx, "vol_tex", 0);
-	glDrawArrays(GL_TRIANGLES, 0, GLsizei(P.size()));
-	slice_prog.disable(ctx);
-	vol_tex.disable(ctx);
-	aam.disable(ctx);
-	if (is_culling)
-		glEnable(GL_CULL_FACE);
-}
-
 void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) const
 {
 	/************************************************************************************
@@ -225,12 +191,24 @@ void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) con
 
 	box3 B(vec3(0.0f), vec3(float(V.get_dimensions()(0)), float(V.get_dimensions()(1)), float(V.get_dimensions()(2))));
 
+	vec3 origin = world_to_voxel_coordinate_transform(slice_origins[index]);
+	if (!B.inside(origin))
+	{
+#ifdef DEBUG
+		std::cout << origin << " not inside" << std::endl;
+
+		std::cout << "B min " << voxel_to_world_coordinate_transform(B.get_min_pnt()) << std::endl;
+		std::cout << "B max " << voxel_to_world_coordinate_transform(B.get_max_pnt()) << std::endl;
+#endif
+		return;
+	}
+
 	float values[8];
 	bool corner_classifications[8]; // true = outside, false = inside
 
 	for (int c = 0; c < 8; ++c)
 	{
-		float value = signed_distance_from_slice(index, B.get_corner(c));
+		float value = signed_distance_from_slice(index, voxel_to_world_coordinate_transform(B.get_corner(c)));
 
 		values[c] = value;
 		corner_classifications[c] = value >= 0;
@@ -263,7 +241,7 @@ void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) con
 
 			float new_value = a_value / (a_value + b_value);
 
-			coord(i / 4) = new_value;
+			coord(i / 4) = new_value * B.get_extent()(i / 4) + B.get_min_pnt()(i / 4);
 
 			p.push_back(coord);
 		}
