@@ -12,8 +12,6 @@
 #include "video_labeler.h"
 #include "pressable.h"
 
-//#define EPSILON 0.01f
-
 class vr_label_tool : 
 	public cgv::base::group,
 	public cgv::render::drawable,
@@ -23,7 +21,7 @@ class vr_label_tool :
 	public vr::vr_tool
 {
 	/// label index to show statistics
-	uint32_t li_stats;
+	uint32_t li_stats; 
 	/// background color of statistics label
 	rgba stats_bgclr;
 	/// labels to show help on controllers
@@ -63,16 +61,20 @@ protected:
 	// previous inverse model transform
 	// if this changes (e.g. the table is rotated), the quaternion for rotating control direction must be recalculated
 	mat4 prev_inverse_model_transform;
-	quat control_direction_rotation;
+	quat control_down_rotation;
 
-	// previous position and direction of the right controller
+	// previous position and down direction of the right controller
 	vec3 prev_control_origin;
-	vec3 prev_control_direction;
+	vec3 prev_control_down;
 
 	// slice
 	// index of temporary slice
 	int temp_slice_idx = -1;
 	size_t selected_slice_idx = SIZE_MAX;
+
+	// distance from front and bottom slices to the controller
+	float front_slice_distance = 0.075f;
+	float bottom_slice_distance = 0.085f;
 
 public:
 	vr_label_tool() : cgv::base::group("vr_label_tool")
@@ -190,20 +192,20 @@ public:
 	{
 		ctx.pop_modelview_matrix();
 	}
-	void finish_frame(cgv::render::context& ctx)
-	{
-		// draw infinite clipping plane (as a disc) only when outside of wireframe box
-		if (tool == tool_enum::slice && temp_slice_idx == -1 && get_scene_ptr()->is_coordsystem_valid(coordinate_system::right_controller))
-		{
-			ctx.push_modelview_matrix();
-			ctx.mul_modelview_matrix(cgv::math::pose4(get_scene_ptr()->get_coordsystem(coordinate_system::right_controller)));
-			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-			draw_circle(ctx, vec3(0.0f, 0.0f, -0.05f), vec3(0, 0, 1));
-			glDisable(GL_BLEND);
-			ctx.pop_modelview_matrix();
-		}
-	}
+	//void finish_frame(cgv::render::context& ctx)
+	//{
+	//	// draw infinite clipping plane (as a disc) only when outside of wireframe box
+	//	if (tool == tool_enum::slice && temp_slice_idx == -1 && get_scene_ptr()->is_coordsystem_valid(coordinate_system::right_controller))
+	//	{
+	//		ctx.push_modelview_matrix();
+	//		ctx.mul_modelview_matrix(cgv::math::pose4(get_scene_ptr()->get_coordsystem(coordinate_system::right_controller)));
+	//		glEnable(GL_BLEND);
+	//		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	//		draw_circle(ctx, vec3(0.0f, -0.05f, 0.0f), vec3(0, -1, 0));
+	//		glDisable(GL_BLEND);
+	//		ctx.pop_modelview_matrix();
+	//	}
+	//}
 	void draw_circle(cgv::render::context& ctx, const vec3& position, const vec3& normal)
 	{
 		auto& sr = cgv::render::ref_surfel_renderer(ctx);
@@ -306,13 +308,13 @@ public:
 
 		if (get_view_ptr() && get_view_ptr()->get_current_vr_state())
 		{
-			vec3 direction = -reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[6]);
+			vec3 down = -reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[3]);
 			vec3 origin = reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[9]);
-			origin += 0.05f * direction;
+			origin += bottom_slice_distance * down;
 
 #ifdef DEBUG
-			std::cout << "\norig direction\t" << direction;
-			std::cout << "\norig origin\t\t" << origin << std::endl;
+			std::cout << "\norig down\t" << down;
+			std::cout << "\norig origin\t" << origin << std::endl;
 #endif
 
 			if (prev_inverse_model_transform != get_inverse_model_transform()) {
@@ -327,47 +329,42 @@ public:
 					rotation.set_col(i, col);
 				}
 
-				control_direction_rotation = quat(rotation);
+				control_down_rotation = quat(rotation);
 			}
 
 			vec4 origin4(get_inverse_model_transform() * origin.lift());
 			origin = origin4 / origin4.w();
 
-			control_direction_rotation.rotate(direction);
+			control_down_rotation.rotate(down);
 
 #ifdef DEBUG
-			std::cout << "\ndirection\t" << direction;
-			std::cout << "\norigin\t\t" << origin << std::endl;
+			std::cout << "\ndown\t" << down;
+			std::cout << "\norigin\t" << origin << std::endl;
 #endif
 
-			//if (prev_control_direction != direction || prev_control_origin != origin)
-			if (fabs(prev_control_direction.x() - direction.x()) > EPSILON ||
-				fabs(prev_control_direction.y() - direction.y()) > EPSILON ||
-				fabs(prev_control_direction.z() - direction.z()) > EPSILON ||
+			if (fabs(prev_control_down.x() - down.x()) > EPSILON ||
+				fabs(prev_control_down.y() - down.y()) > EPSILON ||
+				fabs(prev_control_down.z() - down.z()) > EPSILON ||
 				fabs(prev_control_origin.x() - origin.x()) > EPSILON ||
 				fabs(prev_control_origin.y() - origin.y()) > EPSILON ||
 				fabs(prev_control_origin.z() - origin.z()) > EPSILON)
 			{
 #ifdef DEBUG
-				std::cout << "\nprev direction\t" << prev_control_direction;
+				std::cout << "\nprev down\t" << prev_control_down;
 				std::cout << "\nprev origin\t" << prev_control_origin << std::endl;
 #endif
 
 				control_changed = true;
-
-				//create_slice = origin.x() >= 0.f && origin.x() <= 1.f &&
-				//	origin.y() >= 0.f && origin.y() <= 1.f &&
-				//	origin.z() >= 0.f && origin.z() <= 1.f;
 			}
 
-			prev_control_direction = direction;
+			prev_control_down = down;
 			prev_control_origin = origin;
 		}
 
 		if (control_changed)
 		{
 			labeler->delete_slice(temp_slice_idx);
-			labeler->create_slice(prev_control_origin, prev_control_direction);
+			labeler->create_slice(prev_control_origin, prev_control_down);
 			
 			temp_slice_idx = labeler->get_num_slices() - 1;
 		}
