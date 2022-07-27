@@ -52,8 +52,8 @@ public:
 	void init_frame(cgv::render::context& ctx);
 	void draw(cgv::render::context& ctx);
 
-	void create_slice(const vec3& origin, const vec3& direction, const rgba& color = rgba(0.f, 1.f, 1.f, 0.05f));
-	void delete_slice(size_t index, size_t count = 1);
+	bool create_slice(const vec3& origin, const vec3& direction, const rgba& color = rgba(0.f, 1.f, 1.f, 0.05f));
+	bool delete_slice(int index, size_t count = 1);
 
 	size_t get_num_slices() const;
 private:

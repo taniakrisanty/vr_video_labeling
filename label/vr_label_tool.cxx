@@ -12,7 +12,7 @@
 #include "video_labeler.h"
 #include "pressable.h"
 
-#define EPSILON 0.01f
+//#define EPSILON 0.01f
 
 class vr_label_tool : 
 	public cgv::base::group,
@@ -193,7 +193,7 @@ public:
 	void finish_frame(cgv::render::context& ctx)
 	{
 		// draw infinite clipping plane (as a disc) only when outside of wireframe box
-		if (get_scene_ptr()->is_coordsystem_valid(coordinate_system::right_controller))
+		if (tool == tool_enum::slice && temp_slice_idx == -1 && get_scene_ptr()->is_coordsystem_valid(coordinate_system::right_controller))
 		{
 			ctx.push_modelview_matrix();
 			ctx.mul_modelview_matrix(cgv::math::pose4(get_scene_ptr()->get_coordsystem(coordinate_system::right_controller)));
@@ -302,7 +302,7 @@ public:
 
 	void compute_slice()
 	{
-		bool control_changed = true, create_slice = true;// create_slice = false;
+		bool control_changed = false;
 
 		if (get_view_ptr() && get_view_ptr()->get_current_vr_state())
 		{
@@ -311,8 +311,8 @@ public:
 			origin += 0.05f * direction;
 
 #ifdef DEBUG
-			std::cout << "\noriginal direction\t" << direction;
-			std::cout << "\noriginal origin\t\t" << origin << std::endl;
+			std::cout << "\norig direction\t" << direction;
+			std::cout << "\norig origin\t\t" << origin << std::endl;
 #endif
 
 			if (prev_inverse_model_transform != get_inverse_model_transform()) {
@@ -341,43 +341,35 @@ public:
 #endif
 
 			//if (prev_control_direction != direction || prev_control_origin != origin)
-			if (fabs(prev_control_direction.x() - direction.x()) >= EPSILON ||
-				fabs(prev_control_direction.y() - direction.y()) >= EPSILON ||
-				fabs(prev_control_direction.z() - direction.z()) >= EPSILON ||
-				fabs(prev_control_origin.x() - origin.x()) >= EPSILON ||
-				fabs(prev_control_origin.y() - origin.y()) >= EPSILON ||
-				fabs(prev_control_origin.z() - origin.z()) >= EPSILON)
+			if (fabs(prev_control_direction.x() - direction.x()) > EPSILON ||
+				fabs(prev_control_direction.y() - direction.y()) > EPSILON ||
+				fabs(prev_control_direction.z() - direction.z()) > EPSILON ||
+				fabs(prev_control_origin.x() - origin.x()) > EPSILON ||
+				fabs(prev_control_origin.y() - origin.y()) > EPSILON ||
+				fabs(prev_control_origin.z() - origin.z()) > EPSILON)
 			{
 #ifdef DEBUG
-				//std::cout << "\nprev_direction\t" << prev_control_direction << "\ndirection\t" << direction;
-				//std::cout << "\nprev_origin\t" << prev_control_origin << "\norigin\t\t" << origin << std::endl;
+				std::cout << "\nprev direction\t" << prev_control_direction;
+				std::cout << "\nprev origin\t" << prev_control_origin << std::endl;
 #endif
 
-				prev_control_direction = direction;
-				prev_control_origin = origin;
+				control_changed = true;
 
 				//create_slice = origin.x() >= 0.f && origin.x() <= 1.f &&
 				//	origin.y() >= 0.f && origin.y() <= 1.f &&
 				//	origin.z() >= 0.f && origin.z() <= 1.f;
 			}
-			else
-			{
-				//control_changed = false;
-			}
+
+			prev_control_direction = direction;
+			prev_control_origin = origin;
 		}
 
-		if (control_changed && temp_slice_idx > -1)
+		if (control_changed)
 		{
 			labeler->delete_slice(temp_slice_idx);
-
-			temp_slice_idx = -1;
-		}
-
-		if (create_slice)
-		{
-			temp_slice_idx = labeler->get_num_slices();
-
 			labeler->create_slice(prev_control_origin, prev_control_direction);
+			
+			temp_slice_idx = labeler->get_num_slices() - 1;
 		}
 	}
 };

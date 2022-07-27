@@ -133,6 +133,12 @@ void video_slicer::draw(cgv::render::context& ctx)
 				P.push_back(polygon[i - 1]);
 				for (int s = 0; s < 3; ++s)
 					O.push_back(1.0f);
+
+#ifdef DEBUG
+				std::cout << "texcoord " << (polygon[0] - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
+				std::cout << "texcoord " << (polygon[i] - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
+				std::cout << "texcoord " << (polygon[i - 1] - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
+#endif
 			}
 		}
 	}
@@ -157,24 +163,32 @@ void video_slicer::draw(cgv::render::context& ctx)
 			glEnable(GL_CULL_FACE);
 	}
 }
-void video_slicer::create_slice(const vec3& origin, const vec3& direction, const rgba& color)
+bool video_slicer::create_slice(const vec3& origin, const vec3& direction, const rgba& color)
 {
-	std::cout << "slice created" << std::endl;
+	box3 B(vec3(0.0f), vec3(float(V.get_dimensions()(0)), float(V.get_dimensions()(1)), float(V.get_dimensions()(2))));
+
+	if (!B.inside(world_to_voxel_coordinate_transform(origin)))
+		return false;
 
 	slice_origins.emplace_back(origin);
 	slice_directions.emplace_back(direction);
 
 	//post_recreate_gui();
+
+	return true;
 }
 
-void video_slicer::delete_slice(size_t index, size_t count)
+bool video_slicer::delete_slice(int index, size_t count)
 {
-	std::cout << "slice deleted" << std::endl;
+	if (index < 0 || index + count > slice_origins.size())
+		return false;
 
 	slice_origins.erase(slice_origins.begin() + index, slice_origins.begin() + index + count);
 	slice_directions.erase(slice_directions.begin() + index, slice_directions.begin() + index + count);
 
 	//post_recreate_gui();
+
+	return true;
 }
 
 size_t video_slicer::get_num_slices() const
@@ -190,18 +204,6 @@ void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) con
 	 Assume that outside vertices have a positive distance. */
 
 	box3 B(vec3(0.0f), vec3(float(V.get_dimensions()(0)), float(V.get_dimensions()(1)), float(V.get_dimensions()(2))));
-
-	vec3 origin = world_to_voxel_coordinate_transform(slice_origins[index]);
-	if (!B.inside(origin))
-	{
-#ifdef DEBUG
-		std::cout << origin << " not inside" << std::endl;
-
-		std::cout << "B min " << voxel_to_world_coordinate_transform(B.get_min_pnt()) << std::endl;
-		std::cout << "B max " << voxel_to_world_coordinate_transform(B.get_max_pnt()) << std::endl;
-#endif
-		return;
-	}
 
 	float values[8];
 	bool corner_classifications[8]; // true = outside, false = inside
@@ -261,15 +263,14 @@ void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) con
 
 		for (unsigned int i = 0; i < 3; ++i)
 		{
-			//if (p0(i) < std::numeric_limits<float>::epsilon() || p0(i) > 1 - std::numeric_limits<float>::epsilon())
-			if (fabs(p0(i) - B.get_min_pnt()(i)) < std::numeric_limits<float>::epsilon() ||
-				fabs(p0(i) - B.get_max_pnt()(i)) < std::numeric_limits<float>::epsilon())
+			if (p0(i) < B.get_min_pnt()(i) + EPSILON ||
+				p0(i) > B.get_max_pnt()(i) - EPSILON)
 			{
 				for (unsigned int j = 0; j < p.size(); ++j)
 				{
 					vec3 f = p[j];
 
-					if (fabs(f(i) - p0(i)) < std::numeric_limits<float>::epsilon())
+					if (fabs(f(i) - p0(i)) < EPSILON)
 					{
 						p.erase(p.begin() + j);
 
