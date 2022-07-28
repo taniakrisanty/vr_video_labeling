@@ -306,66 +306,70 @@ public:
 	{
 		bool control_changed = false;
 
-		if (get_view_ptr() && get_view_ptr()->get_current_vr_state())
-		{
-			vec3 down = -reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[3]);
-			vec3 origin = reinterpret_cast<const vec3&>(get_view_ptr()->get_current_vr_state()->controller[1].pose[9]);
-			origin += bottom_slice_distance * down;
+		vr_view_interactor* vr_view_ptr = get_view_ptr();
+		if (!vr_view_ptr)
+			return;
+		const vr::vr_kit_state* state_ptr = vr_view_ptr->get_current_vr_state();
+		if (!state_ptr)
+			return;
+
+		vec3 down = -reinterpret_cast<const vec3&>(state_ptr->controller[1].pose[3]);
+		vec3 origin = reinterpret_cast<const vec3&>(state_ptr->controller[1].pose[9]);
+		origin += bottom_slice_distance * down;
 
 #ifdef DEBUG
-			std::cout << "\norig down\t" << down;
-			std::cout << "\norig origin\t" << origin << std::endl;
+		std::cout << "\norig down\t" << down;
+		std::cout << "\norig origin\t" << origin << std::endl;
 #endif
 
-			if (prev_inverse_model_transform != get_inverse_model_transform()) {
-				prev_inverse_model_transform = get_inverse_model_transform();
+		if (prev_inverse_model_transform != get_inverse_model_transform()) {
+			prev_inverse_model_transform = get_inverse_model_transform();
 
-				mat3 rotation;
+			mat3 rotation;
 
-				for (size_t i = 0; i < 3; ++i) {
-					vec3 col(get_inverse_model_transform().col(i));
-					col.normalize();
+			for (size_t i = 0; i < 3; ++i) {
+				vec3 col(get_inverse_model_transform().col(i));
+				col.normalize();
 
-					rotation.set_col(i, col);
-				}
-
-				control_down_rotation = quat(rotation);
+				rotation.set_col(i, col);
 			}
 
-			vec4 origin4(get_inverse_model_transform() * origin.lift());
-			origin = origin4 / origin4.w();
-
-			control_down_rotation.rotate(down);
-
-#ifdef DEBUG
-			std::cout << "\ndown\t" << down;
-			std::cout << "\norigin\t" << origin << std::endl;
-#endif
-
-			if (fabs(prev_control_down.x() - down.x()) > EPSILON ||
-				fabs(prev_control_down.y() - down.y()) > EPSILON ||
-				fabs(prev_control_down.z() - down.z()) > EPSILON ||
-				fabs(prev_control_origin.x() - origin.x()) > EPSILON ||
-				fabs(prev_control_origin.y() - origin.y()) > EPSILON ||
-				fabs(prev_control_origin.z() - origin.z()) > EPSILON)
-			{
-#ifdef DEBUG
-				std::cout << "\nprev down\t" << prev_control_down;
-				std::cout << "\nprev origin\t" << prev_control_origin << std::endl;
-#endif
-
-				control_changed = true;
-			}
-
-			prev_control_down = down;
-			prev_control_origin = origin;
+			control_down_rotation = quat(rotation);
 		}
+
+		vec4 origin4(get_inverse_model_transform() * origin.lift());
+		origin = origin4 / origin4.w();
+
+		control_down_rotation.rotate(down);
+
+#ifdef DEBUG
+		std::cout << "\ndown\t" << down;
+		std::cout << "\norigin\t" << origin << std::endl;
+#endif
+
+		if (fabs(prev_control_down.x() - down.x()) > EPSILON ||
+			fabs(prev_control_down.y() - down.y()) > EPSILON ||
+			fabs(prev_control_down.z() - down.z()) > EPSILON ||
+			fabs(prev_control_origin.x() - origin.x()) > EPSILON ||
+			fabs(prev_control_origin.y() - origin.y()) > EPSILON ||
+			fabs(prev_control_origin.z() - origin.z()) > EPSILON)
+		{
+#ifdef DEBUG
+			std::cout << "\nprev down\t" << prev_control_down;
+			std::cout << "\nprev origin\t" << prev_control_origin << std::endl;
+#endif
+
+			control_changed = true;
+		}
+
+		prev_control_down = down;
+		prev_control_origin = origin;
 
 		if (control_changed)
 		{
 			labeler->delete_slice(temp_slice_idx);
 			labeler->create_slice(prev_control_origin, prev_control_down);
-			
+
 			temp_slice_idx = labeler->get_num_slices() - 1;
 		}
 	}
