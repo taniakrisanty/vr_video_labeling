@@ -128,16 +128,32 @@ void video_slicer::draw(cgv::render::context& ctx)
 		{
 			for (int i = polygon.size() - 1; i > 1; --i)
 			{
-				P.push_back(polygon[0]);
-				P.push_back(polygon[i]);
-				P.push_back(polygon[i - 1]);
+#ifdef DEBUG
+				std::cout << "0 " << polygon[0] << std::endl;
+				std::cout << i << " " << polygon[i] << std::endl;
+				std::cout << i - 1 << " " << polygon[i - 1] << std::endl;
+#endif
+
+				polygon[0].z() = round(polygon[0].z()) + 0.5f;
+				polygon[i].z() = round(polygon[i].z()) + 0.5f;
+				polygon[i - 1].z() = round(polygon[i - 1].z()) + 0.5f;
+
+#ifdef DEBUG
+				std::cout << "0 " << polygon[0] << std::endl;
+				std::cout << i << " " << polygon[i] << std::endl;
+				std::cout << i - 1 << " " << polygon[i - 1] << std::endl;
+#endif
+
+				P.push_back(voxel_to_world_coordinate_transform(polygon[0]));
+				P.push_back(voxel_to_world_coordinate_transform(polygon[i]));
+				P.push_back(voxel_to_world_coordinate_transform(polygon[i - 1]));
 				for (int s = 0; s < 3; ++s)
 					O.push_back(1.0f);
 
 #ifdef DEBUG
-				std::cout << "texcoord " << (polygon[0] - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
-				std::cout << "texcoord " << (polygon[i] - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
-				std::cout << "texcoord " << (polygon[i - 1] - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
+				std::cout << "texcoord " << (voxel_to_world_coordinate_transform(polygon[0]) - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
+				std::cout << "texcoord " << (voxel_to_world_coordinate_transform(polygon[i]) - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
+				std::cout << "texcoord " << (voxel_to_world_coordinate_transform(polygon[i - 1]) - (position - 0.5f * V.get_extent())) / V.get_extent() << std::endl;
 #endif
 			}
 		}
@@ -255,7 +271,7 @@ void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) con
 	vec3 p0 = p[0];
 	p.erase(p.begin());
 
-	polygon.push_back(voxel_to_world_coordinate_transform(p0));
+	polygon.push_back(p0);
 
 	while (p.size() > 1)
 	{
@@ -274,7 +290,7 @@ void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) con
 					{
 						p.erase(p.begin() + j);
 
-						polygon.push_back(voxel_to_world_coordinate_transform(f));
+						polygon.push_back(f);
 
 						p0 = f;
 						found = true;
@@ -287,7 +303,7 @@ void video_slicer::construct_slice(size_t index, std::vector<vec3>& polygon) con
 		}
 	}
 
-	polygon.push_back(voxel_to_world_coordinate_transform(p[0]));
+	polygon.push_back(p[0]);
 }
 float video_slicer::signed_distance_from_slice(size_t index, const vec3& p) const
 {

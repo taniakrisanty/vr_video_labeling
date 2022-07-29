@@ -12,7 +12,7 @@
 #include "video_labeler.h"
 #include "pressable.h"
 
-class vr_label_tool : 
+class vr_label_tool :
 	public cgv::base::group,
 	public cgv::render::drawable,
 	public cgv::nui::focusable,
@@ -21,7 +21,7 @@ class vr_label_tool :
 	public vr::vr_tool
 {
 	/// label index to show statistics
-	uint32_t li_stats; 
+	uint32_t li_stats;
 	/// background color of statistics label
 	rgba stats_bgclr;
 	/// labels to show help on controllers
@@ -61,20 +61,21 @@ protected:
 	// previous inverse model transform
 	// if this changes (e.g. the table is rotated), the quaternion for rotating control direction must be recalculated
 	mat4 prev_inverse_model_transform;
-	quat control_down_rotation;
+	quat control_rotation;
 
 	// previous position and down direction of the right controller
 	vec3 prev_control_origin;
 	vec3 prev_control_down;
+	// previous forward direction of the table
+	vec3 prev_table_forward;
 
-	// slice
-	// index of temporary slice
-	int temp_slice_idx = -1;
-	size_t selected_slice_idx = SIZE_MAX;
+	// index of front and bottom slices
+	int front_slice_idx = -1;
+	int bottom_slice_idx = -1;
 
 	// distance from front and bottom slices to the controller
 	float front_slice_distance = 0.075f;
-	float bottom_slice_distance = 0.085f;
+	float bottom_slice_distance = 0.075f;
 
 public:
 	vr_label_tool() : cgv::base::group("vr_label_tool")
@@ -82,7 +83,7 @@ public:
 		li_help[0] = li_help[1] = -1;
 		li_stats = -1;
 		stats_bgclr = rgba(0.8f, 0.6f, 0.0f, 0.6f);
-		buttons.push_back(new pressable("play", vec3(0.6f, 0.015f, 0), rgb(0.6f, 0.3f, 0.1f), vec3(0.15f,0.03f,0.15f), 0.015f));
+		buttons.push_back(new pressable("play", vec3(0.6f, 0.015f, 0), rgb(0.6f, 0.3f, 0.1f), vec3(0.15f, 0.03f, 0.15f), 0.015f));
 		connect_copy(buttons.back()->pressed, cgv::signal::rebind(this, &vr_label_tool::on_pressed, cgv::signal::_c<unsigned>(0)));
 		append_child(buttons.back());
 		labeler = video_labeler_ptr(new video_labeler("labeler", rgb(0.5, 0.5f, 0.3f)));
@@ -127,7 +128,7 @@ public:
 		return true;
 	}
 	void init_frame(cgv::render::context& ctx)
-	{		
+	{
 		vr::vr_scene* scene_ptr = get_scene_ptr();
 		if (!scene_ptr)
 			return;
@@ -135,7 +136,7 @@ public:
 		if (li_help[0] == -1) {
 			li_play = scene_ptr->add_label("play", rgba(0, 0, 0, 0));
 			scene_ptr->fix_label_size(li_play);
-			scene_ptr->place_label(li_play, vec3(0.6f, 0.0301f, 0), quat(vec3(1,0,0), -1.57079632679489661f), coordinate_system::table);
+			scene_ptr->place_label(li_play, vec3(0.6f, 0.0301f, 0), quat(vec3(1, 0, 0), -1.57079632679489661f), coordinate_system::table);
 
 			li_stats = scene_ptr->add_label(
 				"drawing index: 000000\n"
@@ -149,7 +150,7 @@ public:
 					rgba(ci == 0 ? 0.8f : 0.4f, 0.4f, ci == 1 ? 0.8f : 0.4f, 0.6f));
 				scene_ptr->fix_label_size(li_help[ci]);
 				scene_ptr->place_label(li_help[ci], vec3(ci == 1 ? -0.05f : 0.05f, 0.0f, 0.0f), quat(vec3(1, 0, 0), -1.5f),
-					ci == 0 ? coordinate_system::left_controller : coordinate_system::right_controller, 
+					ci == 0 ? coordinate_system::left_controller : coordinate_system::right_controller,
 					ci == 1 ? label_alignment::right : label_alignment::left, 0.2f);
 				scene_ptr->hide_label(li_help[ci]);
 			}
@@ -304,7 +305,7 @@ public:
 
 	void compute_slice()
 	{
-		bool control_changed = false;
+		bool down_changed = false, forward_changed = false, origin_changed = false;
 
 		vr_view_interactor* vr_view_ptr = get_view_ptr();
 		if (!vr_view_ptr)
@@ -314,11 +315,12 @@ public:
 			return;
 
 		vec3 down = -reinterpret_cast<const vec3&>(state_ptr->controller[1].pose[3]);
+		vec3 forward = -reinterpret_cast<const vec3&>(get_scene_ptr()->get_coordsystem(coordinate_system::table)[6]);
 		vec3 origin = reinterpret_cast<const vec3&>(state_ptr->controller[1].pose[9]);
-		origin += bottom_slice_distance * down;
 
 #ifdef DEBUG
 		std::cout << "\norig down\t" << down;
+		std::cout << "\norig forward\t" << forward;
 		std::cout << "\norig origin\t" << origin << std::endl;
 #endif
 
@@ -334,43 +336,89 @@ public:
 				rotation.set_col(i, col);
 			}
 
-			control_down_rotation = quat(rotation);
+			control_rotation = quat(rotation);
 		}
 
 		vec4 origin4(get_inverse_model_transform() * origin.lift());
 		origin = origin4 / origin4.w();
 
-		control_down_rotation.rotate(down);
+		control_rotation.rotate(down);
+		control_rotation.rotate(forward);
 
 #ifdef DEBUG
 		std::cout << "\ndown\t" << down;
+		std::cout << "\nforward\t" << forward;
 		std::cout << "\norigin\t" << origin << std::endl;
 #endif
 
 		if (fabs(prev_control_down.x() - down.x()) > EPSILON ||
 			fabs(prev_control_down.y() - down.y()) > EPSILON ||
-			fabs(prev_control_down.z() - down.z()) > EPSILON ||
-			fabs(prev_control_origin.x() - origin.x()) > EPSILON ||
+			fabs(prev_control_down.z() - down.z()) > EPSILON)
+		{
+#ifdef DEBUG
+			std::cout << "\nprev down\t" << prev_control_down;
+#endif
+
+			down_changed = true;
+		}
+
+		prev_control_down = down;
+
+		if (fabs(prev_table_forward.x() - forward.x()) > EPSILON ||
+			fabs(prev_table_forward.y() - forward.y()) > EPSILON ||
+			fabs(prev_table_forward.z() - forward.z()) > EPSILON)
+		{
+#ifdef DEBUG
+			std::cout << "\nprev forward\t" << prev_table_forward;
+#endif
+
+			forward_changed = true;
+		}
+
+		prev_table_forward = forward;
+
+		if (fabs(prev_control_origin.x() - origin.x()) > EPSILON ||
 			fabs(prev_control_origin.y() - origin.y()) > EPSILON ||
 			fabs(prev_control_origin.z() - origin.z()) > EPSILON)
 		{
 #ifdef DEBUG
-			std::cout << "\nprev down\t" << prev_control_down;
-			std::cout << "\nprev origin\t" << prev_control_origin << std::endl;
+			std::cout << "\nprev origin\t" << prev_control_origin;
 #endif
 
-			control_changed = true;
+			origin_changed = true;
 		}
 
-		prev_control_down = down;
 		prev_control_origin = origin;
 
-		if (control_changed)
+		// TODO: need to check whether origin change affects the slices
+		if (down_changed || origin_changed)
 		{
-			labeler->delete_slice(temp_slice_idx);
-			labeler->create_slice(prev_control_origin, prev_control_down);
+			if (labeler->delete_slice(bottom_slice_idx))
+			{
+				if (bottom_slice_idx < front_slice_idx)
+					front_slice_idx -= 1;
 
-			temp_slice_idx = labeler->get_num_slices() - 1;
+				bottom_slice_idx = -1;
+			}
+			if (labeler->create_slice(prev_control_origin + (bottom_slice_distance * prev_control_down), prev_control_down))
+			{
+				bottom_slice_idx = labeler->get_num_slices() - 1;
+			}
+		}
+
+		if (forward_changed || origin_changed)
+		{
+			if (labeler->delete_slice(front_slice_idx))
+			{
+				if (front_slice_idx < bottom_slice_idx)
+					bottom_slice_idx -= 1;
+
+				front_slice_idx = -1;
+			}
+			if (labeler->create_slice(prev_control_origin + (front_slice_distance * prev_table_forward), prev_table_forward))
+			{
+				front_slice_idx = labeler->get_num_slices() - 1;
+			}
 		}
 	}
 };
